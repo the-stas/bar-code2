@@ -9,7 +9,7 @@ const App = () => {
     const [cameraId, setCameraId] = useState(null); // id of the active camera device
     const [cameraError, setCameraError] = useState(null); // error message from failing to access the camera
     const [results, setResults] = useState([]); // list of scanned results
-    const [torchOn, setTorch] = useState(false); // toggleable state for "should torch be on"
+    const [code, setCode] = useState(null);
     const scannerRef = useRef(null); // reference to the scanner element in the DOM
 
     // at start, we need to get a list of the available cameras.  We can do that with Quagga.CameraAccess.enumerateVideoDevices.
@@ -23,7 +23,14 @@ const App = () => {
 
     useEffect(() => {
         const enableCamera = async () => {
-            await Quagga.CameraAccess.request(null, {});
+            await Quagga.CameraAccess.request(null, {
+                audio: false,
+                video: isMobile2() ? {
+                    facingMode: {
+                        exact: 'environment',
+                    },
+                } : true,
+            } );
         };
         const disableCamera = async () => {
             await Quagga.CameraAccess.release();
@@ -37,21 +44,9 @@ const App = () => {
         .then(disableCamera)
         .then(enumerateCameras)
         .then((cameras) => setCameras(cameras))
-        .then(() => Quagga.CameraAccess.disableTorch()) // disable torch at start, in case it was enabled before and we hot-reloaded
         .catch((err) => setCameraError(err));
         return () => disableCamera();
     }, []);
-
-    // provide a function to toggle the torch/flashlight
-    const onTorchClick = useCallback(() => {
-        const torch = !torchOn;
-        setTorch(torch);
-        if (torch) {
-            Quagga.CameraAccess.enableTorch();
-        } else {
-            Quagga.CameraAccess.disableTorch();
-        }
-    }, [torchOn, setTorch]);
 
     return (
         <div>
@@ -67,25 +62,60 @@ const App = () => {
                     </select>
                 </form>
             }
-            <button onClick={onTorchClick}>{torchOn ? 'Disable Torch' : 'Enable Torch'}</button>
-            <button onClick={() => setScanning(!scanning) }>{scanning ? 'Stop' : 'Start'}</button>
+            <button
+                onClick={() => {
+                    setScanning(!scanning);
+                    setResults( [] );
+                } }
+            >
+                {scanning ? 'Stop' : 'Start'}
+            </button>
+            {
+                code && (
+                    <div>
+                        <h3>
+                            Result
+                        </h3>
+                        <p>
+                            { code }
+                        </p>
+                    </div>
+                )
+            }
             <ul className="results">
                 {results.map((result) => (result.codeResult && <Result key={result.codeResult.code} result={result} />))}
             </ul>
-            <div ref={scannerRef} style={{position: 'relative', border: '3px solid red'}}>
-                {/* <video style={{ width: window.innerWidth, height: 480, border: '3px solid orange' }}/> */}
+            <div ref={scannerRef} style={{position: 'relative'}}>
                 <canvas className="drawingBuffer" style={{
                     position: 'absolute',
                     top: '0px',
-                    // left: '0px',
-                    // height: '100%',
-                    // width: '100%',
-                    border: '3px solid green',
                 }} width="640" height="480" />
-                {scanning ? <Scanner scannerRef={scannerRef} cameraId={cameraId} onDetected={(result) => setResults([...results, result])} /> : null}
+                {
+                    scanning ?
+                        <Scanner
+                            scannerRef={scannerRef}
+                            cameraId={cameraId}
+                            onDetected={(result) => {
+                                setResults([...results, result]);
+                                setScanning( false );
+                                if (result.codeResult && result.codeResult.code) {
+                                    setCode( result.codeResult.code );
+                                }
+                            }}
+                        /> :
+                        null
+                }
             </div>
         </div>
     );
 };
 
 export default App;
+
+function isMobile() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent);
+}
+
+function isMobile2() {
+    return isMobile() || /Windows Mobile|iemobile|Puffin|Silk|Opera Mini/i.test( navigator.userAgent );
+}
